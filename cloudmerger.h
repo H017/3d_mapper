@@ -11,8 +11,60 @@
 #include <pcl/io/pcd_io.h>
 
 #include "ICamera.h"
-
+using namespace std;
 using namespace pcl;
+
+typedef std::vector<PointT*> vectorPoint;
+
+class LuminosityBins
+{
+public:
+    vector<vectorPoint*> bins;
+    LuminosityBins()
+    {
+        for(int i=0;i<17;i++)
+        {
+            bins.push_back(new vectorPoint);
+        }
+    }
+
+    ~LuminosityBins()
+    {
+        for(int i=0;i<17;i++)
+        {
+            //delete bins[0];
+        }
+
+        bins.clear();
+    }
+
+
+};
+
+class HueBins
+{
+public:
+    std::vector<LuminosityBins*> bins;
+    HueBins()
+    {
+        for(int i =0;i<20;i++)
+        {
+            bins.push_back(new LuminosityBins);
+        }
+    }
+
+    ~HueBins()
+    {
+        for(int i =0;i<10;i++)
+        {
+            //delete bins[i];
+        }
+        bins.clear();
+    }
+
+
+
+};
 
 
 
@@ -35,6 +87,9 @@ private:
     GeneralizedIterativeClosestPoint<PointT,PointT> icp;
     pcl::VoxelGrid<PointT> sor;
     Eigen::Affine3f transformMatrix;
+
+
+    void addInHueBins(HueBins& hb, PointT *pt);
     void colorNormalizer(PointCloudT::Ptr cloud);
     void colorNormalizer2(PointCloudT::Ptr cloud);
 

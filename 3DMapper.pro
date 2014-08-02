@@ -81,6 +81,8 @@ unix:!macx: LIBS += -lpcl_filters
 
 unix:!macx: LIBS += -lpcl_features
 
+unix:!macx: LIBS += -lpcl_segmentation
+
 unix:!macx: LIBS += /usr/local/lib/libyaml-cpp.a
 
 OTHER_FILES += \

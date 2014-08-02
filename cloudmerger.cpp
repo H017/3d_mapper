@@ -2,28 +2,9 @@
 #include "mapperconfig.h"
 #include <omp.h>
 #include <pcl/filters/median_filter.h>
+#include <pcl/segmentation/extract_clusters.h>
+#include <limits>
 
-// Define a new point representation for < x, y, z, curvature >
-class MyPointRepresentation : public pcl::PointRepresentation <PointNormalT>
-{
-  using pcl::PointRepresentation<PointNormalT>::nr_dimensions_;
-public:
-  MyPointRepresentation ()
-  {
-    // Define the number of dimensions
-    nr_dimensions_ = 4;
-  }
-
-  // Override the copyToFloatArray method to define our feature vector
-  virtual void copyToFloatArray (const PointNormalT &p, float * out) const
-  {
-    // < x, y, z, curvature >
-    out[0] = p.x;
-    out[1] = p.y;
-    out[2] = p.z;
-    out[3] = p.curvature;
-  }
-};
 
 CloudMerger::CloudMerger()
 {
@@ -90,16 +71,29 @@ PointCloudT::Ptr CloudMerger::getMergeCloud2(PointCloudT::ConstPtr cloud)
     }
 
     MedianFilter<PointT> mf;
+    PointCloudT::Ptr filterCloud2 = PointCloudT::Ptr(new PointCloudT);
     PointCloudT::Ptr filterCloud = PointCloudT::Ptr(new PointCloudT);
     mf.setWindowSize(10);
     mf.setInputCloud(cloud);
-    mf.applyFilter(*filterCloud);
+    mf.applyFilter(*filterCloud2);
 
-    //colorNormalizer2(filterCloud);
+    EuclideanClusterExtraction<PointT> ece;
+    ece.setSearchMethod(search::KdTree<PointT>::Ptr(new search::KdTree<PointT>));
+    ece.setMaxClusterSize(INT_MAX);
+    ece.setMinClusterSize(500);
+    ece.setClusterTolerance(0.02);
+
+    ece.setInputCloud(filterCloud2);
+    std::vector<PointIndices> idx;
+
+    ece.extract(idx);
+
+    copyPointCloud(*filterCloud2,idx,*filterCloud);
+
+    colorNormalizer2(filterCloud);
 
     if(mergeCloud->size() > 0)
     {
-        PointCloudT targetCloud;
         PointCloudT srcCloud;
 
         //copyPointCloud(*mergeCloud,targetCloud);
@@ -149,49 +143,160 @@ void CloudMerger::colorNormalizer(PointCloudT::Ptr cloud)
 void CloudMerger::colorNormalizer2(PointCloudT::Ptr cloud)
 {
    // #pragma omp parallel for
+    HueBins hb;
     for(int i = 0; i<cloud->size(); i++)
     {
-        PointT& point = cloud->points[i];
-        float r,g,b,y,alpha;
+        addInHueBins(hb,&(cloud->points[i]));
+    }
 
-        r = point.r;
-        g = point.g;
-        b = point.b;
 
-        y = 0.2126*r + 0.7152*g + 0.0722*b;
-        alpha = 100.0f/y;
-
-        r *= alpha;
-        g *= alpha;
-        b *= alpha;
-
-        if(r <= 255.0f)
+    for(int i = 0; i<hb.bins.size(); i++)
+    {
+        LuminosityBins* lb = hb.bins[i];
+        int maxSize = 0;
+        int maxIndex = 0;
+        for(int j=0;j<lb->bins.size();j++)
         {
-            point.r = int(r);
-        }else
-        {
-            point.r = 255;
+            int size = lb->bins[j]->size();
+            if(maxSize < size)
+            {
+                maxSize = size;
+                maxIndex = j;
+            }
         }
 
-        if(g <= 255.0f)
+        float yPrime = (float(maxIndex)+0.5f)*15.0f;
+
+        for(int j=0;j<lb->bins.size();j++)
         {
-            point.g = int(g);
-        }else
-        {
-            point.g = 255;
+            vectorPoint* v = lb->bins[j];
+            for(int k =0;k<v->size();k++)
+            {
+                PointT* point = v->at(k);
+                float r,g,b,y,alpha;
+
+                r = point->r;
+                g = point->g;
+                b = point->b;
+
+                y = 0.2126*r + 0.7152*g + 0.0722*b;
+                alpha = yPrime/y;
+
+                r *= alpha;
+                g *= alpha;
+                b *= alpha;
+
+                if(r <= 255.0f)
+                {
+                    point->r = int(r);
+                }else
+                {
+                    point->r = 255;
+                }
+
+                if(g <= 255.0f)
+                {
+                    point->g = int(g);
+                }else
+                {
+                    point->g = 255;
+                }
+
+                if(b <= 255.0f)
+                {
+                    point->b = int(b);
+                }else
+                {
+                    point->b = 255;
+                }
+            }
         }
-
-        if(b <= 255.0f)
-        {
-            point.b = int(b);
-        }else
-        {
-            point.b = 255;
-        }
-
-
     }
 }
+
+void CloudMerger::addInHueBins(HueBins &hb, PointT *pt)
+{
+    float r,g,b,h,s,v;
+    r = float(pt->r);
+    g = float(pt->g);
+    b = float(pt->b);
+    RGB_to_HSV(r,g,b,&h,&s,&v);
+    float y = 0.2126*r + 0.7152*g + 0.0722*b;
+
+    LuminosityBins* lb = hb.bins[0];
+
+    float aa = 0;
+    float delta = 360.0f/hb.bins.size();
+    float bb = delta;
+    for(int i=0;i<hb.bins.size();i++)
+    {
+        if(h>=aa && h<bb)
+        {
+            lb = hb.bins[i];
+            break;
+        }
+
+        aa = bb;
+        bb += delta;
+    }
+
+    if(y >= 0 && y < 15)
+    {
+        lb->bins[0]->push_back(pt);
+    }else if(y >= 15 && y < 30)
+    {
+        lb->bins[1]->push_back(pt);
+    }else if(y >= 30 && y < 45)
+    {
+        lb->bins[2]->push_back(pt);
+    }else if(y >= 45 && y < 60)
+    {
+        lb->bins[3]->push_back(pt);
+    }else if(y >= 60 && y < 75)
+    {
+        lb->bins[4]->push_back(pt);
+    }else if(y >= 75 && y < 90)
+    {
+        lb->bins[5]->push_back(pt);
+    }else if(y >= 95 && y < 105)
+    {
+        lb->bins[6]->push_back(pt);
+    }else if(y >= 105 && y < 120)
+    {
+        lb->bins[7]->push_back(pt);
+    }else if(y >= 120 && y < 135)
+    {
+        lb->bins[8]->push_back(pt);
+    }else if(y >= 135 && y < 150)
+    {
+        lb->bins[9]->push_back(pt);
+    }else if(y >= 150 && y < 165)
+    {
+        lb->bins[10]->push_back(pt);
+    }else if(y >= 165 && y < 180)
+    {
+        lb->bins[11]->push_back(pt);
+    }else if(y >= 180 && y < 195)
+    {
+        lb->bins[12]->push_back(pt);
+    }else if(y >= 195 && y < 210)
+    {
+        lb->bins[13]->push_back(pt);
+    }else if(y >= 210 && y < 225)
+    {
+        lb->bins[14]->push_back(pt);
+    }else if(y >= 225 && y < 240)
+    {
+        lb->bins[15]->push_back(pt);
+    }else
+    {
+        lb->bins[16]->push_back(pt);
+    }
+
+
+
+}
+
 
 
 void CloudMerger::HSV_to_RGB(float h, float s, float v, float* r, float* g, float* b)
@@ -261,13 +366,13 @@ void CloudMerger::RGB_to_HSV(float r, float g, float b, float* h, float* s, floa
 
     if(max == r_prime)
     {
-        *h = 60.0f * fmod((g-b/delta),6.0f);
+        *h = 60.0f * fmod((g_prime-b_prime/delta),6.0f);
     }else if(max == g_prime)
     {
-        *h = 60.0f*((b - r)/delta + 2.0f);
+        *h = 60.0f*((b_prime - r_prime)/delta + 2.0f);
     }else
     {
-        *h = 60*((r - g)/delta + 4.0f);
+        *h = 60*((r_prime - g_prime)/delta + 4.0f);
     }
 
     *s = delta/max;
