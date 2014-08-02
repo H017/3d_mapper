@@ -28,6 +28,8 @@ public:
 
 public slots:
     void snapshot();
+    void saveMap();
+    void loadMap();
 private:
     visualization::PCLVisualizer::Ptr visualizer;
     QVTKWidget viewer;
@@ -37,6 +39,8 @@ private:
     PointCloudT::Ptr currentMergeCloud;
     boost::mutex m;
     CloudMerger cm;
+    volatile bool thread_running;
+    volatile bool thread_stop;
 
 
 };

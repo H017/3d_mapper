@@ -1,4 +1,7 @@
 #include "cloudmerger.h"
+#include "mapperconfig.h"
+#include <omp.h>
+#include <pcl/filters/median_filter.h>
 
 // Define a new point representation for < x, y, z, curvature >
 class MyPointRepresentation : public pcl::PointRepresentation <PointNormalT>
@@ -25,10 +28,13 @@ public:
 CloudMerger::CloudMerger()
 {
     mergeCloud = PointCloudT::Ptr(new PointCloudT);
+    lastCloud = PointCloudT::Ptr(new PointCloudT);
 
-    icp.setTransformationEpsilon(1e-6);
-    icp.setMaxCorrespondenceDistance(0.1);
-    icp.setMaximumIterations(20);
+    CloudMergerConfig cmc = MapperConfig::getInstance().getCloudMergerConfig();
+
+    icp.setTransformationEpsilon(cmc.transformationEpsilon);
+    icp.setMaxCorrespondenceDistance(cmc.maxCorrespondenceDistance);
+    icp.setMaximumIterations(cmc.maximumIterations);
     //icp.setRANSACOutlierRejectionThreshold(0.1);
     sor.setLeafSize (0.05f, 0.05f, 0.05f);
     transformMatrix = Eigen::Affine3f::Identity();
@@ -42,12 +48,12 @@ PointCloudT::Ptr CloudMerger::getPairAlign(PointCloudT::Ptr cloud_src, PointClou
     PointCloudT::Ptr tgt (new PointCloudT);
     pcl::VoxelGrid<PointT> grid;
 
-      grid.setLeafSize (0.025, 0.025, 0.025);
-      grid.setInputCloud (cloud_src);
-      grid.filter (*src);
+    grid.setLeafSize (0.03, 0.03, 0.03);
+    grid.setInputCloud (cloud_src);
+    grid.filter (*src);
 
-      grid.setInputCloud (cloud_target);
-      grid.filter (*tgt);
+    grid.setInputCloud (cloud_target);
+    grid.filter (*tgt);
 
 
 
@@ -58,10 +64,12 @@ PointCloudT::Ptr CloudMerger::getPairAlign(PointCloudT::Ptr cloud_src, PointClou
     if(icp.hasConverged())
     {
         transformPointCloud(*cloud_src,final,icp.getFinalTransformation());
+        copyPointCloud(final,*cloud_target);
 
-        final += *cloud_target;
+        //final += *cloud_target;
+        final += *output;
 
-        grid.setLeafSize (0.001, 0.001, 0.001);
+        grid.setLeafSize (0.005, 0.005, 0.005);
         grid.setInputCloud (final.makeShared());
         grid.filter (*output);
     }
@@ -74,135 +82,40 @@ PointCloudT::Ptr CloudMerger::getPairAlign(PointCloudT::Ptr cloud_src, PointClou
 
 PointCloudT::Ptr CloudMerger::getMergeCloud2(PointCloudT::ConstPtr cloud)
 {
+
+
     if(cloud->size() == 0)
     {
         return mergeCloud;
     }
 
+    MedianFilter<PointT> mf;
+    PointCloudT::Ptr filterCloud = PointCloudT::Ptr(new PointCloudT);
+    mf.setWindowSize(10);
+    mf.setInputCloud(cloud);
+    mf.applyFilter(*filterCloud);
+
+    //colorNormalizer2(filterCloud);
+
     if(mergeCloud->size() > 0)
     {
         PointCloudT targetCloud;
         PointCloudT srcCloud;
-        Eigen::Matrix4f trans;
-        copyPointCloud(*mergeCloud,targetCloud);
-        transformPointCloud(*cloud,srcCloud,transformMatrix);
+
+        //copyPointCloud(*mergeCloud,targetCloud);
+        transformPointCloud(*filterCloud,srcCloud,transformMatrix);
         //mergeCloud->swap(srcCloud);
-        this->getPairAlign(srcCloud.makeShared(),targetCloud.makeShared(),mergeCloud);
+        this->getPairAlign(srcCloud.makeShared(),lastCloud,mergeCloud);
     }else
     {
-        copyPointCloud<PointT,PointT>(*cloud,*mergeCloud);
+        copyPointCloud<PointT,PointT>(*filterCloud,*mergeCloud);
+
+        copyPointCloud<PointT,PointT>(*mergeCloud,*lastCloud);
+
     }
     return mergeCloud;
 }
 
-
-void CloudMerger::pairAlign (PointCloudT::Ptr cloud_src, PointCloudT::Ptr cloud_tgt, PointCloudT::Ptr output, Eigen::Matrix4f &final_transform, bool downsample)
-{
-  //
-  // Downsample for consistency and speed
-  // \note enable this for large datasets
-  PointCloudT::Ptr src (new PointCloudT);
-  PointCloudT::Ptr tgt (new PointCloudT);
-  pcl::VoxelGrid<PointT> grid;
-  if (downsample)
-  {
-    grid.setLeafSize (0.05, 0.05, 0.05);
-    grid.setInputCloud (cloud_src);
-    grid.filter (*src);
-
-    grid.setInputCloud (cloud_tgt);
-    grid.filter (*tgt);
-  }
-  else
-  {
-    src = cloud_src;
-    tgt = cloud_tgt;
-  }
-
-
-  // Compute surface normals and curvature
-  PointCloudWithNormals::Ptr points_with_normals_src (new PointCloudWithNormals);
-  PointCloudWithNormals::Ptr points_with_normals_tgt (new PointCloudWithNormals);
-
-  pcl::NormalEstimationOMP<PointT, PointNormalT> norm_est;
-  pcl::search::KdTree<PointT>::Ptr tree (new pcl::search::KdTree<PointT> ());
-  norm_est.setSearchMethod (tree);
-  norm_est.setKSearch (30);
-
-  norm_est.setInputCloud (src);
-  norm_est.compute (*points_with_normals_src);
-  pcl::copyPointCloud (*src, *points_with_normals_src);
-
-  norm_est.setInputCloud (tgt);
-  norm_est.compute (*points_with_normals_tgt);
-  pcl::copyPointCloud (*tgt, *points_with_normals_tgt);
-
-  //
-  // Instantiate our custom point representation (defined above) ...
-  MyPointRepresentation point_representation;
-  // ... and weight the 'curvature' dimension so that it is balanced against x, y, and z
-  float alpha[4] = {1.0, 1.0, 1.0, 1.0};
-  point_representation.setRescaleValues (alpha);
-
-  //
-  // Align
-  pcl::IterativeClosestPointNonLinear<PointNormalT, PointNormalT> reg;
-  reg.setTransformationEpsilon (1e-6);
-  // Set the maximum distance between two correspondences (src<->tgt) to 10cm
-  // Note: adjust this based on the size of your datasets
-  reg.setMaxCorrespondenceDistance (0.1);
-  // Set the point representation
-  reg.setPointRepresentation (boost::make_shared<const MyPointRepresentation> (point_representation));
-
-  reg.setInputSource (points_with_normals_src);
-  reg.setInputTarget (points_with_normals_tgt);
-
-
-
-  //
-  // Run the same optimization in a loop and visualize the results
-  Eigen::Matrix4f Ti = Eigen::Matrix4f::Identity (), prev, targetToSource;
-  PointCloudWithNormals::Ptr reg_result = points_with_normals_src;
-  reg.setMaximumIterations (2);
-  for (int i = 0; i < 30; ++i)
-  {
-    PCL_INFO ("Iteration Nr. %d.\n", i);
-
-    // save cloud for visualization purpose
-    points_with_normals_src = reg_result;
-
-    // Estimate
-    reg.setInputSource (points_with_normals_src);
-    reg.align (*reg_result);
-
-        //accumulate transformation between each Iteration
-    Ti = reg.getFinalTransformation () * Ti;
-
-        //if the difference between this transformation and the previous one
-        //is smaller than the threshold, refine the process by reducing
-        //the maximal correspondence distance
-    if (fabs ((reg.getLastIncrementalTransformation () - prev).sum ()) < reg.getTransformationEpsilon ())
-      reg.setMaxCorrespondenceDistance (reg.getMaxCorrespondenceDistance () - 0.001);
-
-    prev = reg.getLastIncrementalTransformation ();
-
-    // visualize current state
-    //showCloudsRight(points_with_normals_tgt, points_with_normals_src);
-  }
-
-    //
-  // Get the transformation from target to source
-  targetToSource = Ti.inverse();
-
-  //
-  // Transform target back in source frame
-  pcl::transformPointCloud (*cloud_tgt, *output, targetToSource);
-
-  //add the source to the transformed target
-  *output += *cloud_src;
-
-  final_transform = targetToSource;
- }
 
 void CloudMerger::setTransformMatrix(float x, float y, float z, float rX, float rY, float rZ)
 {
@@ -214,5 +127,166 @@ void CloudMerger::setTransformMatrix(float x, float y, float z, float rX, float 
 
     this->transformMatrix = transformMatrix;
 }
+
+void CloudMerger::colorNormalizer(PointCloudT::Ptr cloud)
+{
+   // #pragma omp parallel for
+    for(int i = 0; i<cloud->size(); i++)
+    {
+        PointT& point = cloud->points[i];
+        float r,g,b,h,s,v;
+
+        RGB_to_HSV(point.r,point.g,point.b,&h,&s,&v);
+
+        HSV_to_RGB(h,s,0.75f,&r,&g,&b);
+
+        point.r = int(r);
+        point.g = int(g);
+        point.b = int(b);
+    }
+}
+
+void CloudMerger::colorNormalizer2(PointCloudT::Ptr cloud)
+{
+   // #pragma omp parallel for
+    for(int i = 0; i<cloud->size(); i++)
+    {
+        PointT& point = cloud->points[i];
+        float r,g,b,y,alpha;
+
+        r = point.r;
+        g = point.g;
+        b = point.b;
+
+        y = 0.2126*r + 0.7152*g + 0.0722*b;
+        alpha = 100.0f/y;
+
+        r *= alpha;
+        g *= alpha;
+        b *= alpha;
+
+        if(r <= 255.0f)
+        {
+            point.r = int(r);
+        }else
+        {
+            point.r = 255;
+        }
+
+        if(g <= 255.0f)
+        {
+            point.g = int(g);
+        }else
+        {
+            point.g = 255;
+        }
+
+        if(b <= 255.0f)
+        {
+            point.b = int(b);
+        }else
+        {
+            point.b = 255;
+        }
+
+
+    }
+}
+
+
+void CloudMerger::HSV_to_RGB(float h, float s, float v, float* r, float* g, float* b)
+{
+    float c = s * v;
+    float x = c * (1.0f - fabs(fmod((h / 60.0f),2.0f) - 1.0f));
+    float m = v - c;
+
+    if( h < 60.0f)
+    {
+        *r = c;
+        *g = x;
+        *b = 0;
+    }else if(h < 120.0f)
+    {
+        *r = x;
+        *g = c;
+        *b = 0;
+    }else if(h < 180.0f)
+    {
+        *r = 0;
+        *g = c;
+        *b = x;
+    }else if(h < 240.0f)
+    {
+        *r = 0;
+        *g = x;
+        *b = c;
+    }else if(h < 300.0f)
+    {
+        *r = x;
+        *g = 0;
+        *b = c;
+    }else
+    {
+        *r = c;
+        *g = 0;
+        *b = x;
+    }
+
+    *r += m;
+    *g += m;
+    *b += m;
+
+    *r *= 255.0f;
+    *g *= 255.0f;
+    *b *= 255.0f;
+}
+
+void CloudMerger::RGB_to_HSV(float r, float g, float b, float* h, float* s, float* v)
+{
+    float r_prime = r/255.0f;
+    float g_prime = g/255.0f;
+    float b_prime = b/255.0f;
+
+    float max = std::max(std::max(r_prime,g_prime),b_prime);
+    float min = std::min(std::min(r_prime,g_prime),b_prime);
+
+    float delta = max - min;
+    if(delta == 0)
+    {
+       *h = 0;
+       *s = 0;
+       *v = max;
+       return;
+    }
+
+    if(max == r_prime)
+    {
+        *h = 60.0f * fmod((g-b/delta),6.0f);
+    }else if(max == g_prime)
+    {
+        *h = 60.0f*((b - r)/delta + 2.0f);
+    }else
+    {
+        *h = 60*((r - g)/delta + 4.0f);
+    }
+
+    *s = delta/max;
+    *v = max;
+}
+
+
+void CloudMerger::saveMap(std::string filePath)
+{
+    io::savePCDFile(filePath,*mergeCloud);
+    io::savePCDFile("last_cloud",*lastCloud);
+}
+
+PointCloudT::Ptr CloudMerger::loadMap(std::string filePath)
+{
+    io::loadPCDFile(filePath,*mergeCloud);
+    io::loadPCDFile("last_cloud",*lastCloud);
+    return mergeCloud;
+}
+
 
 

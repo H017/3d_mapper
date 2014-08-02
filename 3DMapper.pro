@@ -17,14 +17,19 @@ SOURCES += main.cpp\
         viewer.cpp \
         cloudmerger.cpp \
     cameraopenni.cpp \
-    transformmatrixdialog.cpp
+    transformmatrixdialog.cpp \
+    mapperconfig.cpp \
+    test_cloudmerger.cpp \
+    directoryreader.cpp
 
 HEADERS  += mainwindow.h \
             viewer.h \
             cloudmerger.h \
     cameraopenni.h \
     ICamera.h \
-    transformmatrixdialog.h
+    transformmatrixdialog.h \
+    mapperconfig.h \
+    directoryreader.h
 
 FORMS    += mainwindow.ui \
     transformmatrixdialog.ui
@@ -35,6 +40,9 @@ INCLUDEPATH += /usr/include/pcl-1.7
 INCLUDEPATH += /usr/include/vtk-5.8
 INCLUDEPATH += /usr/include/eigen3
 INCLUDEPATH += /usr/include/ni
+
+QMAKE_CXXFLAGS += -fopenmp
+LIBS += -fopenmp
 
 
 unix:!macx: LIBS += -lboost_thread
@@ -72,3 +80,16 @@ unix:!macx: LIBS += -lpcl_search
 unix:!macx: LIBS += -lpcl_filters
 
 unix:!macx: LIBS += -lpcl_features
+
+unix:!macx: LIBS += /usr/local/lib/libyaml-cpp.a
+
+OTHER_FILES += \
+    mapper_config.yaml
+
+install_it.path = $$OUT_PWD
+install_it.files = mapper_config.yaml
+
+INSTALLS += \
+    install_it
+
+

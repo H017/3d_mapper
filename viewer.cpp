@@ -1,4 +1,6 @@
 #include "viewer.h"
+#include "mapperconfig.h"
+#include "directoryreader.h"
 
 Viewer::Viewer()
 {
@@ -30,23 +32,38 @@ Viewer::Viewer()
 
     viewer.update();
     viewer_thread_active = true;
-    cam = new CameraOpenni();
+
+    if(MapperConfig::getInstance().isLive())
+    {
+        cam = new CameraOpenni();
+    }else
+    {
+        cam = new DirectoryReader();
+    }
 
     viewer_thread = new boost::thread(&Viewer::viewer_loop,this);
 }
 
 Viewer::~Viewer()
 {
+    thread_running = false;
+    while(!thread_stop)
+    {
+         boost::this_thread::sleep(boost::posix_time::millisec(10));
+    }
     delete cam;
 }
 
 QVTKWidget& Viewer::getWidget()
 {
+
     return viewer;
 }
 void Viewer::viewer_loop()
 {
-    while(!visualizer->wasStopped())
+    thread_running = true;
+    thread_stop = false;
+    while(thread_running && !visualizer->wasStopped())
     {
         boost::this_thread::sleep(boost::posix_time::millisec(100));
 
@@ -56,19 +73,35 @@ void Viewer::viewer_loop()
         PointCloudT filterCloud;
         std::vector<int> idx;
         removeNaNFromPointCloud(*cloud,filterCloud,idx);
-        PointCloudT::Ptr cloudPtr = filterCloud.makeShared();
+        PointCloudT::Ptr cloudPtr(new PointCloudT);
+        pcl::VoxelGrid<PointT> grid;
+
+        grid.setLeafSize (0.01, 0.01, 0.01);
+        grid.setInputCloud (filterCloud.makeShared());
+        grid.filter (*cloudPtr);
         pcl::visualization::PointCloudColorHandlerRGBField<PointT> rgb(cloudPtr);
 
         m.lock();
         visualizer->updatePointCloud<PointT>(cloudPtr,rgb,"cloud");
+        if(!MapperConfig::getInstance().isLive())
+        {
+            currentMergeCloud = cm.getMergeCloud2(cloud);
+            pcl::visualization::PointCloudColorHandlerRGBField<PointT> rgb2(currentMergeCloud);
+            visualizer->updatePointCloud<PointT>(currentMergeCloud,rgb2,"cloud2");
+        }
         viewer.update();
         m.unlock();
     }
+
+    thread_stop = true;
 }
 
 void Viewer::snapshot()
 {
-
+    if(!MapperConfig::getInstance().isLive())
+    {
+        return;
+    }
 
     currentMergeCloud = cm.getMergeCloud2(cam->getCloud());
 
@@ -77,6 +110,28 @@ void Viewer::snapshot()
     visualizer->updatePointCloud<PointT>(currentMergeCloud,rgb2,"cloud2");
     m.unlock();
 }
+
+void Viewer::saveMap()
+{
+    cm.saveMap();
+}
+
+void Viewer::loadMap()
+{
+    currentMergeCloud = PointCloudT::Ptr(new PointCloudT);
+
+    pcl::VoxelGrid<PointT> grid;
+
+    grid.setLeafSize (0.01, 0.01, 0.01);
+    grid.setInputCloud (cm.loadMap());
+    grid.filter (*currentMergeCloud);
+
+    pcl::visualization::PointCloudColorHandlerRGBField<PointT> rgb2(currentMergeCloud);
+    m.lock();
+    visualizer->updatePointCloud<PointT>(currentMergeCloud,rgb2,"cloud2");
+    m.unlock();
+}
+
 
 CloudMerger* Viewer::getCloudMerger()
 {

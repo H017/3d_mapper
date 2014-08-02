@@ -38,9 +38,12 @@
    </property>
    <widget class="QMenu" name="menuTransform_Matrix">
     <property name="title">
-     <string>Transform Matrix</string>
+     <string>File</string>
     </property>
     <addaction name="actionShow_Dialog"/>
+    <addaction name="actionSave_Map"/>
+    <addaction name="actionLoad_Map"/>
+    <addaction name="actionLoad_PCDs"/>
    </widget>
    <addaction name="menuTransform_Matrix"/>
   </widget>
@@ -85,7 +88,22 @@
   </action>
   <action name="actionShow_Dialog">
    <property name="text">
-    <string>Show Dialog</string>
+    <string>Transform Matrix</string>
+   </property>
+  </action>
+  <action name="actionSave_Map">
+   <property name="text">
+    <string>Save Map</string>
+   </property>
+  </action>
+  <action name="actionLoad_Map">
+   <property name="text">
+    <string>Load Map</string>
+   </property>
+  </action>
+  <action name="actionLoad_PCDs">
+   <property name="text">
+    <string>Load PCDs</string>
    </property>
   </action>
  </widget>
