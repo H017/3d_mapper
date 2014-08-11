@@ -18,7 +18,7 @@ class CameraOpenni : public ICamera
 public:
     CameraOpenni();
     ~CameraOpenni();
-    virtual PointCloudT::Ptr getCloud();
+    PointCloudT::Ptr getCloud();
 
 private:
     Grabber* interface;

@@ -8,7 +8,8 @@ class DirectoryReader : public ICamera
 {
 public:
     DirectoryReader(std::string directoryPath="pointclouds/");
-    virtual PointCloudT::Ptr getCloud();
+    PointCloudT::Ptr getCloud();
+    int getCount();
 
 private:
     std::string directoryPath;

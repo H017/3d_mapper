@@ -20,7 +20,8 @@ SOURCES += main.cpp\
     transformmatrixdialog.cpp \
     mapperconfig.cpp \
     test_cloudmerger.cpp \
-    directoryreader.cpp
+    directoryreader.cpp \
+    statisticsgatherer.cpp
 
 HEADERS  += mainwindow.h \
             viewer.h \
@@ -29,7 +30,8 @@ HEADERS  += mainwindow.h \
     ICamera.h \
     transformmatrixdialog.h \
     mapperconfig.h \
-    directoryreader.h
+    directoryreader.h \
+    statisticsgatherer.h
 
 FORMS    += mainwindow.ui \
     transformmatrixdialog.ui
@@ -79,9 +81,13 @@ unix:!macx: LIBS += -lpcl_search
 
 unix:!macx: LIBS += -lpcl_filters
 
+
+
 unix:!macx: LIBS += -lpcl_features
 
 unix:!macx: LIBS += -lpcl_segmentation
+
+unix:!macx: LIBS += -lpcl_surface
 
 unix:!macx: LIBS += /usr/local/lib/libyaml-cpp.a
 

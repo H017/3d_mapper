@@ -7,14 +7,17 @@
 using namespace pcl;
 
 typedef PointXYZRGB PointT;
+
+
 typedef PointCloud<PointT> PointCloudT;
 
-typedef PointNormal PointNormalT;
-typedef PointCloud<PointNormalT> PointCloudWithNormals;
+
+
 
 class ICamera{
 public:
     virtual PointCloudT::Ptr getCloud()=0;
+    virtual int getCount(){return 0;}
 };
 
 

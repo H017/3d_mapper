@@ -1,6 +1,7 @@
 #include "viewer.h"
 #include "mapperconfig.h"
 #include "directoryreader.h"
+#include <QMessageBox>
 
 Viewer::Viewer()
 {
@@ -38,10 +39,12 @@ Viewer::Viewer()
         cam = new CameraOpenni();
     }else
     {
-        cam = new DirectoryReader();
+        cam = new DirectoryReader(MapperConfig::getInstance().getDirectoryPath());
     }
 
+    connect(this,SIGNAL(reconstructionFinished()),this,SLOT(showMessageBox()));
     viewer_thread = new boost::thread(&Viewer::viewer_loop,this);
+
 }
 
 Viewer::~Viewer()
@@ -59,16 +62,42 @@ QVTKWidget& Viewer::getWidget()
 
     return viewer;
 }
+
+void Viewer::showMessageBox()
+{
+    QMessageBox::information(0,"Reconstruction info","Reconstruction is finished!");
+}
+
 void Viewer::viewer_loop()
 {
     thread_running = true;
     thread_stop = false;
+    lastScan = false;
+
+    int count = 0;
+
     while(thread_running && !visualizer->wasStopped())
     {
         boost::this_thread::sleep(boost::posix_time::millisec(100));
 
         PointCloudT::ConstPtr cloud = cam->getCloud();
-        if(cloud == NULL || cloud.get() == NULL || cloud->size() == 0) continue;
+        if(cloud == NULL || cloud.get() == NULL || cloud->size() == 0)
+        {
+            if(!MapperConfig::getInstance().isLive())
+            {
+                if(!lastScan)
+                {
+                    //cm.finalSmoothing();
+                    currentMergeCloud = cm.finalSmoothing();
+                    pcl::visualization::PointCloudColorHandlerRGBField<PointT> rgb2(currentMergeCloud);
+                    visualizer->updatePointCloud<PointT>(currentMergeCloud,rgb2,"cloud2");
+                    lastScan = true;
+                    emit reconstructionFinished();
+                }
+            }
+            continue;
+        }
+
 
         PointCloudT filterCloud;
         std::vector<int> idx;
@@ -76,21 +105,26 @@ void Viewer::viewer_loop()
         PointCloudT::Ptr cloudPtr(new PointCloudT);
         pcl::VoxelGrid<PointT> grid;
 
-        grid.setLeafSize (0.01, 0.01, 0.01);
+        grid.setLeafSize (0.005, 0.005, 0.005);
         grid.setInputCloud (filterCloud.makeShared());
         grid.filter (*cloudPtr);
         pcl::visualization::PointCloudColorHandlerRGBField<PointT> rgb(cloudPtr);
 
         m.lock();
-        visualizer->updatePointCloud<PointT>(cloudPtr,rgb,"cloud");
+
         if(!MapperConfig::getInstance().isLive())
         {
             currentMergeCloud = cm.getMergeCloud2(cloud);
             pcl::visualization::PointCloudColorHandlerRGBField<PointT> rgb2(currentMergeCloud);
             visualizer->updatePointCloud<PointT>(currentMergeCloud,rgb2,"cloud2");
+            count++;
+            emit mergingProgression(count);
+            viewer.update();
         }
+        visualizer->updatePointCloud<PointT>(cloudPtr,rgb,"cloud");
         viewer.update();
         m.unlock();
+
     }
 
     thread_stop = true;
@@ -136,5 +170,10 @@ void Viewer::loadMap()
 CloudMerger* Viewer::getCloudMerger()
 {
     return &cm;
+}
+
+int Viewer::getMediasCount()
+{
+    return cam->getCount();
 }
 

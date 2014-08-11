@@ -13,10 +13,15 @@ MainWindow::MainWindow(QWidget *parent) :
     tmd = new TransformMatrixDialog(parent,v->getCloudMerger());
 
     ui->verticalLayout->addWidget(&(v->getWidget()));
-    connect(ui->snapShotButton,SIGNAL(clicked()),v,SLOT(snapshot()));
+    connect(ui->actionSnapshot,SIGNAL(triggered()),v,SLOT(snapshot()));
     connect(ui->actionShow_Dialog,SIGNAL(triggered()),tmd,SLOT(show()));
     connect(ui->actionSave_Map,SIGNAL(triggered()),v,SLOT(saveMap()));
     connect(ui->actionLoad_Map,SIGNAL(triggered()),v,SLOT(loadMap()));
+
+    ui->progressBar->setMinimum(0);
+    ui->progressBar->setMaximum(v->getMediasCount());
+
+    connect(v,SIGNAL(mergingProgression(int)),ui->progressBar,SLOT(setValue(int)));
 
 }
 

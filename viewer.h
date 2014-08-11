@@ -30,6 +30,16 @@ public slots:
     void snapshot();
     void saveMap();
     void loadMap();
+    int getMediasCount();
+
+private slots:
+    void showMessageBox();
+
+
+signals:
+    void reconstructionFinished();
+    void mergingProgression(int);
+
 private:
     visualization::PCLVisualizer::Ptr visualizer;
     QVTKWidget viewer;
@@ -41,6 +51,7 @@ private:
     CloudMerger cm;
     volatile bool thread_running;
     volatile bool thread_stop;
+    volatile bool lastScan;
 
 
 };

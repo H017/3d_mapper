@@ -5,12 +5,15 @@
 #include <pcl/registration/icp.h>
 #include <pcl/registration/icp_nl.h>
 #include <pcl/registration/gicp.h>
+
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/filters/filter.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/surface/mls.h>
 
 #include "ICamera.h"
+#include "statisticsgatherer.h"
 using namespace std;
 using namespace pcl;
 
@@ -80,6 +83,8 @@ public:
     PointCloudT::Ptr loadMap(std::string filePath="map_3d.pcd");
     void HSV_to_RGB(float h, float s, float v, float* r, float* g, float* b);
     void RGB_to_HSV(float r, float g, float b, float* h, float* s, float* v);
+    PointCloudT::Ptr finalSmoothing();
+
 
 private:
     PointCloudT::Ptr mergeCloud;
@@ -88,10 +93,14 @@ private:
     pcl::VoxelGrid<PointT> sor;
     Eigen::Affine3f transformMatrix;
 
+    StatisticsGatherer sg;
+    MovingLeastSquares<PointT,PointT> mls;
+    float finalSmoothingSearchRadius;
 
     void addInHueBins(HueBins& hb, PointT *pt);
     void colorNormalizer(PointCloudT::Ptr cloud);
     void colorNormalizer2(PointCloudT::Ptr cloud);
+    boost::shared_ptr<PointT> addPoint(float x, float  y, float z);
 
 };
 

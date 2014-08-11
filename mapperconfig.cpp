@@ -11,8 +11,11 @@ MapperConfig::MapperConfig()
     cloudMergerConfig.maxCorrespondenceDistance = cloudMergerNode["max_correspondence_distance"].as<float>();
     cloudMergerConfig.transformationEpsilon = cloudMergerNode["transformation_epsilon"].as<float>();
     cloudMergerConfig.maximumIterations = cloudMergerNode["maximum_iterations"].as<int>();
+    cloudMergerConfig.mlsSearchRadiusSmoothing = cloudMergerNode["mls_search_radius_smoothing"].as<float>();
+    cloudMergerConfig.mlsSearchRadiusFinal = cloudMergerNode["mls_search_radius_final"].as<float>();
 
     live = config["live"].as<bool>();
+    directoryPath = config["directory_path"].as<std::string>();
 
 }
 
@@ -29,4 +32,9 @@ const CloudMergerConfig& MapperConfig::getCloudMergerConfig()
 bool MapperConfig::isLive()
 {
     return live;
+}
+
+const std::string MapperConfig::getDirectoryPath()
+{
+    return directoryPath;
 }

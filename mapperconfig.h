@@ -14,6 +14,8 @@ struct CloudMergerConfig
     float transformationEpsilon = 1e-6;
     float maxCorrespondenceDistance = 0.03;
     int maximumIterations = 20;
+    float mlsSearchRadiusSmoothing = 0.03f;
+    float mlsSearchRadiusFinal = 0.03f;
 };
 
 class MapperConfig
@@ -28,11 +30,13 @@ public:
 
     const CameraConfig& getCameraConfig();
     const CloudMergerConfig& getCloudMergerConfig();
+    const std::string getDirectoryPath();
     bool isLive();
 
 private:
     CameraConfig cameraConfig;
     CloudMergerConfig cloudMergerConfig;
+    std::string directoryPath;
     bool live;
 };
 

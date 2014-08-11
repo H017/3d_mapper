@@ -3,33 +3,64 @@
 #include <omp.h>
 #include <pcl/filters/median_filter.h>
 #include <pcl/segmentation/extract_clusters.h>
+#include <pcl/filters/fast_bilateral_omp.h>
+#include <pcl/impl/instantiate.hpp>
+#include <pcl/filters/bilateral.h>
+#include <pcl/common/distances.h>
+
 #include <limits>
 
 
 CloudMerger::CloudMerger()
 {
+
     mergeCloud = PointCloudT::Ptr(new PointCloudT);
     lastCloud = PointCloudT::Ptr(new PointCloudT);
 
     CloudMergerConfig cmc = MapperConfig::getInstance().getCloudMergerConfig();
 
     icp.setTransformationEpsilon(cmc.transformationEpsilon);
+    icp.setRotationEpsilon(cmc.transformationEpsilon);
+
     icp.setMaxCorrespondenceDistance(cmc.maxCorrespondenceDistance);
     icp.setMaximumIterations(cmc.maximumIterations);
+    icp.setEuclideanFitnessEpsilon(cmc.transformationEpsilon);
+    //icp.setMaximumOptimizerIterations(cmc.maximumIterations);
+    //icp.setUseReciprocalCorrespondences(true);
+
+
     //icp.setRANSACOutlierRejectionThreshold(0.1);
     sor.setLeafSize (0.05f, 0.05f, 0.05f);
     transformMatrix = Eigen::Affine3f::Identity();
+
+    mls.setPolynomialFit(true);
+    mls.setSearchMethod( pcl::search::KdTree<PointT>::Ptr(new pcl::search::KdTree<PointT>));
+    mls.setComputeNormals(true);
+    mls.setSearchRadius(cmc.mlsSearchRadiusSmoothing);
+
+    finalSmoothingSearchRadius = cmc.mlsSearchRadiusFinal;
+}
+
+boost::shared_ptr<PointT> CloudMerger::addPoint(float x, float y, float z)
+{
+    boost::shared_ptr<PointT> pt(new PointT);
+    pt->x = x;
+    pt->y=y;
+    pt->z=z;
+
+    return pt;
 }
 
 
 PointCloudT::Ptr CloudMerger::getPairAlign(PointCloudT::Ptr cloud_src, PointCloudT::Ptr cloud_target, PointCloudT::Ptr output)
 {
     PointCloudT final;
+
     PointCloudT::Ptr src (new PointCloudT);
     PointCloudT::Ptr tgt (new PointCloudT);
     pcl::VoxelGrid<PointT> grid;
 
-    grid.setLeafSize (0.03, 0.03, 0.03);
+    grid.setLeafSize (0.02, 0.02, 0.02);
     grid.setInputCloud (cloud_src);
     grid.filter (*src);
 
@@ -37,26 +68,72 @@ PointCloudT::Ptr CloudMerger::getPairAlign(PointCloudT::Ptr cloud_src, PointClou
     grid.filter (*tgt);
 
 
+    search::KdTree<PointT> srctree;
+    srctree.setInputCloud(src);
+
+
+
+
+    vector<float> distances;
+    for(int i = 0; i<tgt->size();i++)
+    {
+        PointT& pt1 = tgt->points[i];
+        vector<int> idx;
+        vector<float> dist;
+        if(srctree.nearestKSearch(pt1,1,idx,dist) == 1)
+        {
+            //boost::shared_ptr<PointT> pt2 = srcPoints[j];
+            distances.push_back(dist[0]);
+
+        }
+    }
+
+    double mean,dev;
+    getMeanStdDev(distances,mean,dev);
+
+    double minDistance = fabs(-0.6*dev+mean);
+
+
+
+
+    //double minCorr1 = std::min(fabs(srcMax.x-tgtMax.x),min(fabs(srcMax.y-tgtMax.y),fabs(srcMax.z-tgtMax.z)));
+    //double minCorr2 = std::min(fabs(tgtMin.x-srcMin.x),min(fabs(tgtMin.y-srcMin.y),fabs(tgtMin.z-srcMin.z)));
+
+    //icp.setCorrespondenceRandomness(5);
+    icp.setMaxCorrespondenceDistance(0.005);
+    do
+    {
 
     icp.setInputCloud(src);
     icp.setInputTarget(tgt);
     icp.align(*src);
 
-    if(icp.hasConverged())
-    {
-        transformPointCloud(*cloud_src,final,icp.getFinalTransformation());
-        copyPointCloud(final,*cloud_target);
+        if(icp.hasConverged())
+        {
+            transformPointCloud(*cloud_src,final,icp.getFinalTransformation());
+            copyPointCloud(final,*cloud_target);
 
-        //final += *cloud_target;
-        final += *output;
+            //final += *cloud_target;
+            final += *output;
 
-        grid.setLeafSize (0.005, 0.005, 0.005);
-        grid.setInputCloud (final.makeShared());
-        grid.filter (*output);
-    }
+            grid.setLeafSize (0.005, 0.005, 0.005);
+            grid.setInputCloud (final.makeShared());
+            grid.filter (*output);
 
+            sg.addFitnessScore(icp.getFitnessScore());
 
-    //output->swap(final);
+        }else
+        {
+            icp.setMaxCorrespondenceDistance(icp.getMaxCorrespondenceDistance()+0.01);
+        }
+
+        if(icp.getMaxCorrespondenceDistance()>0.1)
+        {
+             sg.addNonConvergedCloud(cloud_src->header.frame_id);
+             break;
+        }
+
+    }while(!icp.hasConverged());
 
     return output;
 }
@@ -70,12 +147,13 @@ PointCloudT::Ptr CloudMerger::getMergeCloud2(PointCloudT::ConstPtr cloud)
         return mergeCloud;
     }
 
-    MedianFilter<PointT> mf;
+
+
     PointCloudT::Ptr filterCloud2 = PointCloudT::Ptr(new PointCloudT);
     PointCloudT::Ptr filterCloud = PointCloudT::Ptr(new PointCloudT);
-    mf.setWindowSize(10);
-    mf.setInputCloud(cloud);
-    mf.applyFilter(*filterCloud2);
+
+    mls.setInputCloud(cloud);
+    mls.process(*filterCloud2);
 
     EuclideanClusterExtraction<PointT> ece;
     ece.setSearchMethod(search::KdTree<PointT>::Ptr(new search::KdTree<PointT>));
@@ -90,7 +168,7 @@ PointCloudT::Ptr CloudMerger::getMergeCloud2(PointCloudT::ConstPtr cloud)
 
     copyPointCloud(*filterCloud2,idx,*filterCloud);
 
-    colorNormalizer2(filterCloud);
+    //colorNormalizer2(filterCloud);
 
     if(mergeCloud->size() > 0)
     {
@@ -107,6 +185,39 @@ PointCloudT::Ptr CloudMerger::getMergeCloud2(PointCloudT::ConstPtr cloud)
         copyPointCloud<PointT,PointT>(*mergeCloud,*lastCloud);
 
     }
+    return mergeCloud;
+}
+
+PointCloudT::Ptr CloudMerger::finalSmoothing()
+{
+    PointCloudT filterCloud;
+    copyPointCloud<PointT,PointT>(*mergeCloud,filterCloud);
+
+
+
+    //BilateralFilter<PointT> fbf;
+
+    //fbf.setSearchMethod(search::KdTree<PointT>::Ptr(new search::KdTree<PointT>));
+
+    //fbf.setSigmaR(0.4);
+    //fbf.setSigmaS(64.0);
+
+    //fbf.setHalfSize(64.0);
+    //fbf.setStdDev(0.4);
+
+    //fbf.setInputCloud(filterCloud.makeShared());
+    mls.setSearchRadius(finalSmoothingSearchRadius);
+    mls.setInputCloud(filterCloud.makeShared());
+
+    mls.process(*mergeCloud);
+
+    //fbf.applyFilter(*mergeCloud);
+    //mergeCloud->clear();
+
+    //fbf.applyfilter(*mergeCloud);
+
+    sg.saveStaticticsFile();
+
     return mergeCloud;
 }
 

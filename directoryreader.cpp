@@ -17,6 +17,8 @@ PointCloudT::Ptr DirectoryReader::getCloud()
     {
         PointCloudT::Ptr cloud = PointCloudT::Ptr(new PointCloudT);
         io::loadPCDFile(files[count],*cloud);
+        cloud->header.frame_id = files[count];
+        cloud->header.seq = count;
         clouds.push_back(cloud);
         return clouds[count];
     }else
@@ -44,4 +46,9 @@ void DirectoryReader::loadFiles()
             }
         }
     }
+}
+
+int DirectoryReader::getCount()
+{
+    return files.size();
 }

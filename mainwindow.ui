@@ -16,9 +16,9 @@
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="verticalLayout_2">
     <item>
-     <widget class="QPushButton" name="snapShotButton">
-      <property name="text">
-       <string>Snapshot</string>
+     <widget class="QProgressBar" name="progressBar">
+      <property name="value">
+       <number>24</number>
       </property>
      </widget>
     </item>
@@ -44,6 +44,7 @@
     <addaction name="actionSave_Map"/>
     <addaction name="actionLoad_Map"/>
     <addaction name="actionLoad_PCDs"/>
+    <addaction name="actionSnapshot"/>
    </widget>
    <addaction name="menuTransform_Matrix"/>
   </widget>
@@ -104,6 +105,11 @@
   <action name="actionLoad_PCDs">
    <property name="text">
     <string>Load PCDs</string>
+   </property>
+  </action>
+  <action name="actionSnapshot">
+   <property name="text">
+    <string>Snapshot</string>
    </property>
   </action>
  </widget>
